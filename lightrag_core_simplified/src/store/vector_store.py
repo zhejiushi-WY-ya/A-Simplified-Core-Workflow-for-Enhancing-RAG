@@ -1,4 +1,4 @@
-from ..io.file_io import save, load
+from ..utils.json_file import save, load
 
 
 class VectorStore:
@@ -6,7 +6,7 @@ class VectorStore:
         self.path = f"./out/vdb_{name}.json"
         self.vectors = load(self.path) or {}
 
-    def add(self, ids, vecs):
+    def upsert(self, ids, vecs):
         for i, v in zip(ids, vecs):
             self.vectors[i] = v
 

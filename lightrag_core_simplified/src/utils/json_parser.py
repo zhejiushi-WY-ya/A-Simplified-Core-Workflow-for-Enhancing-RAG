@@ -1,4 +1,5 @@
 import json, re
+from json_repair import repair_json
 
 
 def safe_json(text: str):
@@ -17,6 +18,14 @@ def safe_json(text: str):
         try:
             return json.loads(m.group())
         except:
-            pass
+            try:
+                return json.loads(repair_json(m.group(), skip_json_loads=True))
+            except:
+                pass
+
+    try:
+        return json.loads(repair_json(text, skip_json_loads=True))
+    except:
+        pass
 
     return {}

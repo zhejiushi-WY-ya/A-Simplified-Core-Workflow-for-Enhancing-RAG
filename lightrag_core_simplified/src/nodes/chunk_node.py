@@ -1,9 +1,9 @@
-from ..modules import chunking
+from ..modules import chunking_module
 
 
 def build_node(config):
     async def node(state):
-        chunks = chunking.run(
+        chunks = chunking_module.run(
             config,
             state["content"],
             state["doc_id"]

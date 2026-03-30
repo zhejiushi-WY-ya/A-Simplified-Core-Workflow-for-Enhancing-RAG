@@ -1,0 +1,25 @@
+{
+  "total_compared": 20,
+  "wins": {
+    "Comprehensiveness": {
+      "simplified": 14,
+      "standard": 6,
+      "unknown": 0
+    },
+    "Diversity": {
+      "simplified": 15,
+      "standard": 5,
+      "unknown": 0
+    },
+    "Empowerment": {
+      "simplified": 14,
+      "standard": 6,
+      "unknown": 0
+    },
+    "Overall Winner": {
+      "simplified": 14,
+      "standard": 6,
+      "unknown": 0
+    }
+  }
+}
