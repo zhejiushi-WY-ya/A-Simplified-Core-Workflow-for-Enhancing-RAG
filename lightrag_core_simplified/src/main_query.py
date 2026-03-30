@@ -18,7 +18,7 @@ DATA_PATHS = [
 ]
 
 OUTPUT_DIR = BASE_DIR / "results"
-MAX_RECORDS = 20
+MAX_RECORDS = 1
 DEFAULT_MODE = "hybrid"
 
 

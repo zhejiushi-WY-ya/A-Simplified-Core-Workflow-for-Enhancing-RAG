@@ -1,57 +1,42 @@
-import os
 import json
 import asyncio
-import hashlib
 from pathlib import Path
-from lightrag import LightRAG
+from lightrag import LightRAG, QueryParam
 from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
 
 BASE_DIR = Path(__file__).resolve().parent
 WORKING_DIR = BASE_DIR / "exp_data"
 
-CORPUS_PATHS = [
+QUERY_PATHS = [
     BASE_DIR / "raw_data" / "agriculture.jsonl",
     BASE_DIR / "raw_data" / "cs.jsonl",
     BASE_DIR / "raw_data" / "legal.jsonl",
     BASE_DIR / "raw_data" / "mix.jsonl",
 ]
 
-
-def normalize_text(text: str) -> str:
-    """轻量归一化，避免同一文本因空格/换行差异被当成不同文本。"""
-    if not isinstance(text, str):
-        text = str(text)
-    return " ".join(text.strip().split())
+OUTPUT_PATH = BASE_DIR / "results.jsonl"
 
 
-def text_hash(text: str) -> str:
-    """对归一化后的文本做 hash，用于跨文件去重。"""
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
-
-
-async def build_corpus_db(rag, max_records=None):
+def load_queries(max_queries=None):
     """
-    对多个语料文件做去重并写入 RAG 数据库。
-    - 多个文件里重复的 context 只插入一次
-    - max_records=None 表示不设上限
+    从多个 jsonl 文件中按顺序读取 query，不去重。
+    每条记录保留来源文件名，便于后续分析。
     """
-    seen_hashes = set()
-    loaded_count = 0
-    skipped_duplicate = 0
-    skipped_empty = 0
-    skipped_invalid = 0
+    queries = []
+    gts = []
+    sources = []
 
-    for file_path in CORPUS_PATHS:
+    for file_path in QUERY_PATHS:
         path = Path(file_path)
         if not path.exists():
-            print(f"⚠️ 文件不存在，跳过: {file_path}")
+            print(f"⚠️ query 文件不存在，跳过: {file_path}")
             continue
 
-        print(f"\n📂 开始读取语料文件: {file_path}")
+        print(f"\n📂 开始读取 query 文件: {file_path}")
 
         with open(path, "r", encoding="utf-8") as f:
-            for line_no, line in enumerate(f, start=1):
-                if max_records is not None and loaded_count >= max_records:
+            for i, line in enumerate(f, start=1):
+                if max_queries is not None and len(queries) >= max_queries:
                     break
 
                 line = line.strip()
@@ -61,39 +46,61 @@ async def build_corpus_db(rag, max_records=None):
                 try:
                     data = json.loads(line)
                 except json.JSONDecodeError:
-                    skipped_invalid += 1
-                    print(f"⚠️ 非法 JSON，跳过: {file_path}:{line_no}")
+                    print(f"⚠️ query 文件中存在非法 JSON，跳过: {file_path}:{i}")
                     continue
 
-                text = data.get("context", "")
-                text = normalize_text(text)
+                q = data.get("input", "")
+                if not isinstance(q, str):
+                    q = str(q)
+                q = q.strip()
 
-                if not text:
-                    skipped_empty += 1
+                if not q:
                     continue
 
-                h = text_hash(text)
-                if h in seen_hashes:
-                    skipped_duplicate += 1
-                    continue
+                queries.append(q)
 
-                seen_hashes.add(h)
-                await rag.ainsert(text)
-                loaded_count += 1
+                answers = data.get("answers", [""])
+                gt = answers[0] if isinstance(answers, list) and answers else ""
+                if not isinstance(gt, str):
+                    gt = str(gt)
+                gts.append(gt)
 
-        if max_records is not None and loaded_count >= max_records:
+                sources.append(path.name)
+
+        if max_queries is not None and len(queries) >= max_queries:
             break
 
-    print("\n✅ 数据库构建完成")
-    print(f"已插入唯一语料: {loaded_count}")
-    print(f"重复语料跳过: {skipped_duplicate}")
-    print(f"空文本跳过: {skipped_empty}")
-    print(f"非法 JSON 跳过: {skipped_invalid}")
+    print(f"\n✅ Queries loaded: {len(queries)}（来自 4 个文件，未去重）")
+    return queries, gts, sources
+
+
+async def run_experiment(rag, mode="hybrid", max_queries=None):
+    queries, gts, sources = load_queries(max_queries=max_queries)
+
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as fout:
+        for i, q in enumerate(queries):
+            print("\n==============================")
+            print(f"QUERY {i+1} [{sources[i]}]: {q}")
+            print("==============================")
+
+            ans = await rag.aquery(q, param=QueryParam(mode=mode))
+
+            print("\n--- RAG ANSWER ---")
+            print(ans)
+
+            record = {
+                "source_file": sources[i],
+                "query": q,
+                "ground_truth": gts[i],
+                "rag_answer": ans,
+                "mode": mode,
+            }
+            fout.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    print(f"\n✅ Results saved to {OUTPUT_PATH}")
 
 
 async def main():
-    os.makedirs(WORKING_DIR, exist_ok=True)
-
     rag = LightRAG(
         working_dir=WORKING_DIR,
         embedding_func=openai_embed,
@@ -101,7 +108,7 @@ async def main():
     )
 
     await rag.initialize_storages()
-    await build_corpus_db(rag, max_records=None)
+    await run_experiment(rag, mode="hybrid", max_queries=None)
     await rag.finalize_storages()
 
 
