@@ -4,20 +4,22 @@ import asyncio
 from openai import AsyncOpenAI
 from lightrag import LightRAG, QueryParam
 from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
 WORKING_DIR = "./exp_data"
 DATA_PATH = "./raw_data/mix.jsonl"
+OUTPUT_PATH = "./results.jsonl"   # ✅ 输出文件
 
 client = AsyncOpenAI()
 
+
+# ====== 加载数据 ======
 async def load_data(rag):
     with open(DATA_PATH, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
-            if i==10:
+            if i == 20:
                 break
             data = json.loads(line)
             text = data.get("context", "")
@@ -33,81 +35,44 @@ def load_queries():
 
     with open(DATA_PATH, "r", encoding="utf-8") as f:
         for i, line in enumerate(f):
-            if i==10:
+            if i == 20:
                 break
             data = json.loads(line)
             queries.append(data.get("input", ""))
             gts.append(data.get("answers", [""])[0])
+
     return queries, gts
 
 
-# ====== LLM评估（核心） ======
-async def judge_answer(query, gt, ans1, ans2):
-    prompt = f"""
-        You are an evaluator.
-        
-        Question:
-        {query}
-        
-        Ground Truth:
-        {gt}
-        
-        Answer A:
-        {ans1}
-        
-        Answer B:
-        {ans2}
-        
-        Which answer is better? Reply with:
-        - "A"
-        - "B"
-        - "Tie"
-        
-        Also give a short reason.
-    """
-
-    resp = await client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0,
-    )
-
-    return resp.choices[0].message.content
-
-
-# ====== 主实验 ======
+# ====== 主实验（只保存结果） ======
 async def run_experiment(rag):
     queries, gts = load_queries()
 
-    modes = ["naive", "hybrid"]
+    mode = "hybrid"   # ✅ 你当前用的模式
 
-    for i, q in enumerate(queries):
-        print("\n==============================")
-        print(f"QUERY: {q}")
-        print("==============================")
+    with open(OUTPUT_PATH, "w", encoding="utf-8") as fout:
+        for i, q in enumerate(queries):
+            print("\n==============================")
+            print(f"QUERY: {q}")
+            print("==============================")
 
-        results = {}
-
-        for mode in modes:
+            # 👉 RAG生成
             ans = await rag.aquery(q, param=QueryParam(mode=mode))
-            results[mode] = ans
 
-        print("\n--- naive ---")
-        print(results["naive"])
+            print("\n--- RAG ANSWER ---")
+            print(ans)
 
-        print("\n--- hybrid ---")
-        print(results["hybrid"])
+            # 👉 保存结果
+            record = {
+                "query": q,
+                "ground_truth": gts[i],
+                "rag_answer": ans,
+                "mode": mode
+            }
 
-        # ===== LLM评估 =====
-        judge = await judge_answer(
-            q,
-            gts[i],
-            results["naive"],
-            results["hybrid"],
-        )
+            fout.write(json.dumps(record, ensure_ascii=False) + "\n")
 
-        print("\n🔥 JUDGE RESULT:")
-        print(judge)
+    print(f"\n✅ Results saved to {OUTPUT_PATH}")
 
 
 # ====== 主函数 ======
