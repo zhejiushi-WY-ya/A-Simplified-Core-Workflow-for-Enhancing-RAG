@@ -4,14 +4,14 @@ from pathlib import Path
 from lightrag import LightRAG, QueryParam
 from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 WORKING_DIR = BASE_DIR / "exp_data"
 
-QUERY_PATHS = [
-    BASE_DIR / "raw_data" / "agriculture.jsonl",
-    BASE_DIR / "raw_data" / "cs.jsonl",
-    BASE_DIR / "raw_data" / "legal.jsonl",
-    BASE_DIR / "raw_data" / "mix.jsonl",
+DATA_PATHS = [
+    BASE_DIR.parent / "raw_data" / "agriculture.jsonl",
+    BASE_DIR.parent / "raw_data" / "cs.jsonl",
+    BASE_DIR.parent / "raw_data" / "legal.jsonl",
+    BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
 
 OUTPUT_PATH = BASE_DIR / "results.jsonl"
@@ -26,7 +26,7 @@ def load_queries(max_queries=None):
     gts = []
     sources = []
 
-    for file_path in QUERY_PATHS:
+    for file_path in DATA_PATHS:
         path = Path(file_path)
         if not path.exists():
             print(f"⚠️ query 文件不存在，跳过: {file_path}")

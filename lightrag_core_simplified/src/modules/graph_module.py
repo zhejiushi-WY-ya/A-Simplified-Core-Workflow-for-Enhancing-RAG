@@ -1,6 +1,6 @@
 import json
 
-from openai import OpenAI
+from ..llm import get_llm_client
 from lightrag.utils import normalize_extracted_info
 
 from ..prompt_templates import (
@@ -178,7 +178,7 @@ def run(config, chunks):
     summary_relations = set()
 
     if chunks:
-        client = OpenAI(base_url=config.base_url, api_key=config.api_key)
+        client = get_llm_client(config)
 
         for chunk_id, chunk in chunks.items():
             res = client.chat.completions.create(

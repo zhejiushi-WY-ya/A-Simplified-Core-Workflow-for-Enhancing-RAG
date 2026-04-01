@@ -1,7 +1,7 @@
 import json
 import math
 
-from openai import OpenAI
+from ..llm import get_llm_client
 
 from ..prompt_templates import (
     ANSWER_PROMPT,
@@ -377,7 +377,7 @@ def generate_answer(config, client, query, context_data):
 
 def retrieve(config, query, mode=None):
     retrieval_mode = mode or config.retrieval_mode
-    client = OpenAI(base_url=config.base_url, api_key=config.api_key)
+    client = get_llm_client(config)
 
     keywords = extract_keywords(config, client, query)
     retrieval_query = " | ".join(
@@ -490,7 +490,7 @@ def retrieve(config, query, mode=None):
 
 
 def run(config, query, mode=None):
-    client = OpenAI(base_url=config.base_url, api_key=config.api_key)
+    client = get_llm_client(config)
     retrieval = retrieve(config, query, mode=mode)
     answer_context = f"{retrieval['raw_context']}\n\nCompressed Reasoning Notes:\n{retrieval['context']}"
     answer = generate_answer(config, client, query, answer_context)

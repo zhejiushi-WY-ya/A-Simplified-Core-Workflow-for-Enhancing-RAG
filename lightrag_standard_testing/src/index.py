@@ -4,18 +4,17 @@ import asyncio
 import hashlib
 from pathlib import Path
 from lightrag import LightRAG
-from lightrag.llm.openai import gpt_4o_mini_complete, openai_embed
+from llm import select_model
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 WORKING_DIR = BASE_DIR / "exp_data"
 
-CORPUS_PATHS = [
-    BASE_DIR / "raw_data" / "agriculture.jsonl",
-    BASE_DIR / "raw_data" / "cs.jsonl",
-    BASE_DIR / "raw_data" / "legal.jsonl",
-    BASE_DIR / "raw_data" / "mix.jsonl",
+DATA_PATHS = [
+    BASE_DIR.parent / "raw_data" / "agriculture.jsonl",
+    BASE_DIR.parent / "raw_data" / "cs.jsonl",
+    BASE_DIR.parent / "raw_data" / "legal.jsonl",
+    BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
-
 
 def normalize_text(text: str) -> str:
     """轻量归一化，避免同一文本因空格/换行差异被当成不同文本。"""
@@ -41,7 +40,7 @@ async def build_corpus_db(rag, max_records=None):
     skipped_empty = 0
     skipped_invalid = 0
 
-    for file_path in CORPUS_PATHS:
+    for file_path in DATA_PATHS:
         path = Path(file_path)
         if not path.exists():
             print(f"⚠️ 文件不存在，跳过: {file_path}")
@@ -94,14 +93,16 @@ async def build_corpus_db(rag, max_records=None):
 async def main():
     os.makedirs(WORKING_DIR, exist_ok=True)
 
+    embedding_model,chat_model = select_model('local')
+
     rag = LightRAG(
         working_dir=WORKING_DIR,
-        embedding_func=openai_embed,
-        llm_model_func=gpt_4o_mini_complete,
+        embedding_func=embedding_model,
+        llm_model_func=chat_model,
     )
 
     await rag.initialize_storages()
-    await build_corpus_db(rag, max_records=None)
+    await build_corpus_db(rag)
     await rag.finalize_storages()
 
 

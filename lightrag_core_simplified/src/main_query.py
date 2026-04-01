@@ -8,13 +8,13 @@ from langgraph.graph import END, StateGraph
 from .config import Config
 from .nodes.retrieval_node import build_node
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = Path(__file__).resolve().parent.parent
 
 DATA_PATHS = [
-    BASE_DIR / "raw_data" / "agriculture.jsonl",
-    BASE_DIR / "raw_data" / "cs.jsonl",
-    BASE_DIR / "raw_data" / "legal.jsonl",
-    BASE_DIR / "raw_data" / "mix.jsonl",
+    BASE_DIR.parent / "raw_data" / "agriculture.jsonl",
+    BASE_DIR.parent / "raw_data" / "cs.jsonl",
+    BASE_DIR.parent / "raw_data" / "legal.jsonl",
+    BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
 
 OUTPUT_DIR = BASE_DIR / "results"
@@ -120,11 +120,7 @@ async def run():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    config = Config(
-        base_url=os.getenv("LIGHTRAG_BASE_URL", "https://rtekkxiz.bja.sealos.run/v1"),
-        api_key=os.getenv("LIGHTRAG_API_KEY", "sk-eGYT382xngt2u4kGGnxInmjYvqloG8ltr07UbSKvo7w2uBI7"),
-        retrieval_mode=DEFAULT_MODE,
-    )
+    config = Config(provider='local')
 
     query_graph = build_graph(config)
 
