@@ -11,7 +11,7 @@ git clone https://github.com/HKUDS/LightRAG.git
 ```bash
 cd LightRAG
 uv tool install -e .
-uv add langgraph
+uv add langgraph openai
 ```
 
 ### 3. Configure the LLM environment
