@@ -1,6 +1,5 @@
 from ..modules import graph_module
 
-
 def build_node(config):
     async def node(state):
         g = graph_module.run(config, state["chunks"])

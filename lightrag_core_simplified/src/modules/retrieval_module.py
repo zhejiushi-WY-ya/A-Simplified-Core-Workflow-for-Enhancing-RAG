@@ -17,6 +17,8 @@ from ..utils.json_parser import safe_json
 
 
 def cos(a, b):
+    if len(a) != len(b):
+        return None
     denom = np_l2(a) * np_l2(b)
     if denom == 0:
         return 0.0
@@ -32,7 +34,18 @@ def np_l2(vec):
 
 
 def score_vectors(query_vec, vectors):
-    scores = [(key, cos(query_vec, value)) for key, value in vectors.items()]
+    query_dim = len(query_vec)
+    scores = []
+    for key, value in vectors.items():
+        if not value:
+            continue
+        if len(value) != query_dim:
+            # Skip corrupted/incompatible vectors instead of silently truncating via zip().
+            continue
+        sim = cos(query_vec, value)
+        if sim is None:
+            continue
+        scores.append((key, sim))
     scores.sort(key=lambda item: item[1], reverse=True)
     return scores
 
