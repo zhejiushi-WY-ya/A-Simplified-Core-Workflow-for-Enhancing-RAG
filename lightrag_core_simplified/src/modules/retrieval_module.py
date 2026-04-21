@@ -513,5 +513,5 @@ def run(config, query, mode=None):
         "answer": answer,
     }
 
-    save("./out/retrieval.json", result)
+    save("./exp_data/retrieval.json", result)
     return result

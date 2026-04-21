@@ -283,8 +283,8 @@ def run(config, chunks):
 
     merged_graph = graph_store.save()
 
-    save("./out/entities.json", merged_graph["nodes"])
-    save("./out/relations.json", merged_graph["edges"])
+    save("./exp_data/entities.json", merged_graph["nodes"])
+    save("./exp_data/relations.json", merged_graph["edges"])
 
     kv = []
 

@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import json
+import os
 from pathlib import Path
 
 from langgraph.graph import END, StateGraph
@@ -15,9 +16,6 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 WORKING_DIR = BASE_DIR / "exp_data"
 
 DATA_PATHS = [
-    BASE_DIR.parent / "raw_data" / "agriculture.jsonl",
-    BASE_DIR.parent / "raw_data" / "cs.jsonl",
-    BASE_DIR.parent / "raw_data" / "legal.jsonl",
     BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
 
@@ -214,13 +212,16 @@ def build_graph(config):
 async def run():
     WORKING_DIR.mkdir(parents=True, exist_ok=True)
 
-    config = Config(provider="openai")
+    provider = os.getenv("RAG_PROVIDER", "openai").strip().lower()
+    config = Config(provider=provider)
 
     _print_section("Build graph")
     print(f"Working/output dir: {WORKING_DIR}")
 
     graph = build_graph(config)
-    await load_data(graph, max_records=None)
+    max_records_env = os.getenv("MAX_INDEX_RECORDS", "").strip()
+    max_records = int(max_records_env) if max_records_env else None
+    await load_data(graph, max_records=max_records)
 
     _print_section("Done")
 

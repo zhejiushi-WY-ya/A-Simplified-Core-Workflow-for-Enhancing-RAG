@@ -1,9 +1,12 @@
 from dataclasses import dataclass, field
 from typing import Literal
 from dotenv import load_dotenv
+from pathlib import Path
 import os
 
-load_dotenv()
+BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 Provider = Literal["openai", "local"]
 
@@ -53,8 +56,8 @@ class Config:
             )
 
         elif self.provider == "openai":
-            base_url = os.getenv("OPENAI_BASE_URL", "https://rtekkxiz.bja.sealos.run/v1")
-            api_key = os.getenv("OPENAI_API_KEY", "sk-eGYT382xngt2u4kGGnxInmjYvqloG8ltr07UbSKvo7w2uBI7")
+            base_url = os.getenv("OPENAI_BASE_URL")
+            api_key = os.getenv("OPENAI_API_KEY")
 
             self.llm_base_url = base_url
             self.embedding_base_url = base_url
@@ -62,8 +65,10 @@ class Config:
             self.embedding_api_key = api_key
 
             self.llm_model = os.getenv("OPENAI_LLM_MODEL", "gpt-4o-mini")
-            self.embedding_model = os.getenv(
-                "OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"
-            )
+            self.embedding_model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
         else:
             raise ValueError(f"Unsupported provider: {self.provider}")
+
+if __name__ == "__main__":
+    config = Config("openai")
+    print(config)

@@ -17,7 +17,7 @@ DATA_PATHS = [
     BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
 
-OUTPUT_DIR = BASE_DIR / "results"
+OUTPUT_DIR = BASE_DIR / "exp_data"
 MAX_RECORDS = 1
 DEFAULT_MODE = "hybrid"
 
@@ -120,7 +120,8 @@ async def run():
 
     OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-    config = Config(provider='local')
+    provider = os.getenv("RAG_PROVIDER", "openai").strip().lower()
+    config = Config(provider=provider)
 
     query_graph = build_graph(config)
 

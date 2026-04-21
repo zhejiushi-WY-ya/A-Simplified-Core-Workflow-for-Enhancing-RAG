@@ -16,7 +16,7 @@ def _ordered_union(left, right):
 
 class ChunkStore:
     def __init__(self):
-        self.path = "./out/chunks.json"
+        self.path = "./exp_data/chunks.json"
         self.data = load(self.path) or {}
 
     def get(self, chunk_id):

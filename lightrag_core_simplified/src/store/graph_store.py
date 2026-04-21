@@ -5,9 +5,9 @@ from ..utils.json_file import save, load
 
 class GraphStore:
     def __init__(self):
-        self.path = "./out/graph.json"
-        self.entity_index_path = "./out/graph_entity_index.json"
-        self.relation_index_path = "./out/graph_relation_index.json"
+        self.path = "./exp_data/graph.json"
+        self.entity_index_path = "./exp_data/graph_entity_index.json"
+        self.relation_index_path = "./exp_data/graph_relation_index.json"
 
         self.data = load(self.path) or {"nodes": [], "edges": []}
         self.entity_index = load(self.entity_index_path)
