@@ -2,11 +2,12 @@ import base64
 import struct
 
 from ..utils.json_file import save, load
+from ..runtime_paths import workspace_file
 
 
 class VectorStore:
     def __init__(self, name):
-        self.path = f"./exp_data/vdb_{name}.json"
+        self.path = workspace_file(f"vdb_{name}.json")
         self.vectors = self._decode_store(load(self.path) or {})
 
     def upsert(self, ids, vecs):

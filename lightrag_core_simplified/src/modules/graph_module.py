@@ -8,6 +8,7 @@ from ..prompt_templates import (
     INDEX_EXTRACTION_PROMPT,
     build_description_summary_prompt,
 )
+from ..runtime_paths import workspace_file
 from ..utils.json_file import save
 from ..store.graph_store import GraphStore
 from ..store.kv_store import KVStore
@@ -283,8 +284,8 @@ def run(config, chunks):
 
     merged_graph = graph_store.save()
 
-    save("./exp_data/entities.json", merged_graph["nodes"])
-    save("./exp_data/relations.json", merged_graph["edges"])
+    save(workspace_file("entities.json"), merged_graph["nodes"])
+    save(workspace_file("relations.json"), merged_graph["edges"])
 
     kv = []
 

@@ -1,4 +1,5 @@
 from ..utils.json_file import save, load
+from ..runtime_paths import workspace_file
 
 
 def _ordered_union(left, right):
@@ -16,7 +17,7 @@ def _ordered_union(left, right):
 
 class ChunkStore:
     def __init__(self):
-        self.path = "./exp_data/chunks.json"
+        self.path = workspace_file("chunks.json")
         self.data = load(self.path) or {}
 
     def get(self, chunk_id):

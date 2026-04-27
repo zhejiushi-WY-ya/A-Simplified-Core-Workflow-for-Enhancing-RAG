@@ -1,4 +1,31 @@
-from lightrag.prompt import PROMPTS
+try:
+    from lightrag.prompt import PROMPTS
+except ImportError:  # pragma: no cover - fallback keeps the QA path importable
+    PROMPTS = {
+        "DEFAULT_TUPLE_DELIMITER": "<|>",
+        "DEFAULT_COMPLETION_DELIMITER": "##",
+        "keywords_extraction_examples": [
+            "{\"high_level_keywords\": [\"topic\"], \"low_level_keywords\": [\"entity\", \"constraint\"]}"
+        ],
+        "keywords_extraction": """---Task---
+Extract retrieval-oriented keywords for the following query.
+
+Return JSON with the exact schema:
+{
+  "high_level_keywords": ["broad topic"],
+  "low_level_keywords": ["specific entity or constraint"]
+}
+
+---Query---
+{query}
+""",
+        "summarize_entity_descriptions": """---Task---
+Merge the following descriptions for {description_type} `{description_name}` into one grounded summary.
+
+Descriptions:
+{description_list}
+""",
+    }
 
 
 DEFAULT_TUPLE_DELIMITER = PROMPTS["DEFAULT_TUPLE_DELIMITER"]

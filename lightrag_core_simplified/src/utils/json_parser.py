@@ -1,5 +1,10 @@
 import json, re
-from json_repair import repair_json
+
+try:
+    from json_repair import repair_json
+except ImportError:  # pragma: no cover - optional convenience dependency
+    def repair_json(text, skip_json_loads=True):
+        return text
 
 
 def safe_json(text: str):

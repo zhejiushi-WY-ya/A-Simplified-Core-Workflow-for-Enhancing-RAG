@@ -1,8 +1,13 @@
 from dataclasses import dataclass, field
 from typing import Literal
-from dotenv import load_dotenv
 from pathlib import Path
 import os
+
+try:
+    from dotenv import load_dotenv
+except ImportError:  # pragma: no cover - optional dependency in some lightweight envs
+    def load_dotenv(*_args, **_kwargs):
+        return False
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / ".env")

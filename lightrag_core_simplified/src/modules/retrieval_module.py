@@ -2,18 +2,19 @@ import json
 import math
 
 from ..llm import get_llm_client
-
 from ..prompt_templates import (
     ANSWER_PROMPT,
     CONTEXT_COMPRESSION_PROMPT,
     build_keywords_extraction_prompt,
 )
+from ..runtime_paths import workspace_file
 from ..store.chunk_store import ChunkStore
 from ..store.graph_store import GraphStore
 from ..store.kv_store import KVStore
 from ..store.vector_store import VectorStore
 from ..utils.json_file import save
 from ..utils.json_parser import safe_json
+from ..wtb_integration.tracing import trace_node
 
 
 def cos(a, b):
@@ -67,16 +68,17 @@ def dedupe_scored_items(items, top_k):
 
 
 def extract_keywords(config, client, query):
-    response = client.chat.completions.create(
-        model=config.llm_model,
-        messages=[{
-            "role": "user",
-            "content": build_keywords_extraction_prompt(
-                query=query,
-                language="the same language as the user query",
-            ),
-        }],
-    )
+    with trace_node("extract_keywords"):
+        response = client.chat.completions.create(
+            model=config.llm_model,
+            messages=[{
+                "role": "user",
+                "content": build_keywords_extraction_prompt(
+                    query=query,
+                    language="the same language as the user query",
+                ),
+            }],
+        )
 
     parsed = safe_json(response.choices[0].message.content)
     high_level = parsed.get("high_level_keywords", []) or []
@@ -366,10 +368,11 @@ def compress_context(config, client, query, context):
         context=context,
     )
 
-    res = client.chat.completions.create(
-        model=config.llm_model,
-        messages=[{"role": "user", "content": prompt}]
-    )
+    with trace_node("compress_context"):
+        res = client.chat.completions.create(
+            model=config.llm_model,
+            messages=[{"role": "user", "content": prompt}]
+        )
 
     return res.choices[0].message.content
 
@@ -380,10 +383,11 @@ def generate_answer(config, client, query, context_data):
         query=query,
     )
 
-    res = client.chat.completions.create(
-        model=config.llm_model,
-        messages=[{"role": "user", "content": prompt}]
-    )
+    with trace_node("generate_answer"):
+        res = client.chat.completions.create(
+            model=config.llm_model,
+            messages=[{"role": "user", "content": prompt}]
+        )
 
     return res.choices[0].message.content
 
@@ -397,10 +401,11 @@ def retrieve(config, query, mode=None):
         [query] + keywords["high_level_keywords"] + keywords["low_level_keywords"]
     )
 
-    query_vec = client.embeddings.create(
-        model=config.embedding_model,
-        input=retrieval_query
-    ).data[0].embedding
+    with trace_node("embed_query"):
+        query_vec = client.embeddings.create(
+            model=config.embedding_model,
+            input=retrieval_query
+        ).data[0].embedding
 
     chunk_vector_store = VectorStore("chunks")
     entity_vector_store = VectorStore("entities")
@@ -513,5 +518,5 @@ def run(config, query, mode=None):
         "answer": answer,
     }
 
-    save("./exp_data/retrieval.json", result)
+    save(workspace_file("retrieval.json"), result)
     return result
