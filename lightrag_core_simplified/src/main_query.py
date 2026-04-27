@@ -3,9 +3,10 @@ import json
 import os
 from pathlib import Path
 
+from langgraph.graph import END, StateGraph
+
 from .config import Config
-from .pipelines import build_query_graph
-from .runtime_paths import ensure_workspace_dir, get_workspace_dir
+from .nodes.retrieval_node import build_node
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -16,9 +17,20 @@ DATA_PATHS = [
     BASE_DIR.parent / "raw_data" / "mix.jsonl",
 ]
 
-OUTPUT_DIR = get_workspace_dir()
+OUTPUT_DIR = BASE_DIR / "exp_data"
 MAX_RECORDS = 1
 DEFAULT_MODE = "hybrid"
+
+
+def build_graph(config):
+    g = StateGraph(dict)
+
+    g.add_node("retrieval", build_node(config))
+
+    g.set_entry_point("retrieval")
+    g.add_edge("retrieval", END)
+
+    return g.compile()
 
 
 def load_queries(data_path: Path, max_records=20):
@@ -106,12 +118,12 @@ async def run():
         missing_text = "\n".join(str(p) for p in missing_files)
         raise FileNotFoundError(f"Missing dataset files:\n{missing_text}")
 
-    ensure_workspace_dir()
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     provider = os.getenv("RAG_PROVIDER", "openai").strip().lower()
     config = Config(provider=provider)
 
-    query_graph = build_query_graph(config)
+    query_graph = build_graph(config)
 
     for data_path in DATA_PATHS:
         output_path = OUTPUT_DIR / f"results_{data_path.stem}.jsonl"

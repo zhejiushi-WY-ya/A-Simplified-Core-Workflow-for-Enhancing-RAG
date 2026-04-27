@@ -9,8 +9,6 @@ from typing import Any, Iterable, Optional
 
 from openai import OpenAI
 
-from .wtb_integration.tracing import record_materialization_event
-
 
 def _as_bool(value: str, default: bool = False) -> bool:
     normalized = value.strip().lower()
@@ -79,11 +77,6 @@ def _split_messages(messages: Iterable[Any]) -> tuple[Optional[str], str]:
     return system_prompt, prompt
 
 
-def _request_signature(payload: dict[str, Any]) -> str:
-    serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
-
-
 def _stable_unit_vector(text: str, dimension: int) -> list[float]:
     values = []
     counter = 0
@@ -145,22 +138,6 @@ class _WTBChatCompletionsAdapter:
             temperature=temperature,
             max_tokens=max_tokens,
         )
-        record_materialization_event(
-            event_type="chat_completion",
-            model=result.model,
-            cache_key=result.cache_key,
-            cache_hit=result.cache_hit,
-            request_signature=_request_signature(
-                {
-                    "model": resolved_model,
-                    "system_prompt": system_prompt or "",
-                    "prompt": prompt,
-                    "temperature": float(temperature),
-                    "max_tokens": max_tokens,
-                }
-            ),
-            metadata={"duration_ms": result.duration_ms},
-        )
         return SimpleNamespace(
             choices=[SimpleNamespace(message=SimpleNamespace(content=result.text))]
         )
@@ -185,17 +162,6 @@ class _WTBEmbeddingsAdapter:
             ]
         else:
             embeddings = self._service.generate_embeddings(texts, model=resolved_model)
-        record_materialization_event(
-            event_type="embedding_generation",
-            model=resolved_model,
-            request_signature=_request_signature(
-                {
-                    "model": resolved_model,
-                    "input": texts,
-                }
-            ),
-            metadata={"input_count": len(texts)},
-        )
         return SimpleNamespace(data=[_EmbeddingItem(embedding=list(vector)) for vector in embeddings])
 
 

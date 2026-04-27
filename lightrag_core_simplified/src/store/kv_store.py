@@ -1,5 +1,4 @@
 from ..utils.json_file import save, load
-from ..runtime_paths import workspace_file
 
 
 def _ordered_union(left, right):
@@ -34,7 +33,7 @@ def _merge_text(current, incoming):
 
 class KVStore:
     def __init__(self):
-        self.path = workspace_file("kv.json")
+        self.path = "./exp_data/kv.json"
         self.data = load(self.path) or []
         self.index = {}
 

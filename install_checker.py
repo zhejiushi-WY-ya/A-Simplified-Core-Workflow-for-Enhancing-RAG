@@ -548,91 +548,6 @@ def check_cache_rollback_and_fork() -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
-def check_benchmark_mapping_helpers() -> None:
-    """Keep the benchmark question -> node path/materialized-key contract honest."""
-    try:
-        from lightrag_core_simplified.src.wtb_integration.runner import (
-            BenchmarkQuestion,
-            build_edge_rows,
-            create_mapping_row,
-        )
-
-        question = BenchmarkQuestion(
-            question_id="mapping-q1",
-            question_text="How does the cache checker map materialized keys?",
-            cluster_id="mapping-cluster",
-        )
-        trace_snapshot = {
-            "events": [
-                {
-                    "node_path": "retrieval.extract_keywords",
-                    "event_type": "chat_completion",
-                    "model": "cache-check-text",
-                    "cache_key": "cache-key-a",
-                    "cache_hit": False,
-                },
-                {
-                    "node_path": "retrieval.generate_answer",
-                    "event_type": "chat_completion",
-                    "model": "cache-check-text",
-                    "cache_key": "cache-key-b",
-                    "cache_hit": True,
-                },
-                {
-                    "node_path": "retrieval.generate_answer",
-                    "event_type": "chat_completion",
-                    "model": "cache-check-text",
-                    "cache_key": "cache-key-b",
-                    "cache_hit": True,
-                },
-            ]
-        }
-        env_paths = {
-            "WTB_LLM_CACHE_PATH": "/tmp/wtb-cache-check/llm_response_cache.db",
-            "WTB_CHECKPOINT_DB_PATH": "/tmp/wtb-cache-check/wtb_checkpoints.db",
-            "WTB_CACHE_STORAGE_SCOPE": "workflow_local",
-        }
-        row = create_mapping_row(
-            run_id="mapping-run",
-            question=question,
-            trace_snapshot=trace_snapshot,
-            execution=None,
-            checkpoint_count=0,
-            env_paths=env_paths,
-            status="completed",
-        )
-        edge_rows = build_edge_rows(mapping_row=row, trace_snapshot=trace_snapshot)
-
-        failures: List[str] = []
-        _expect(row["question_id"] == "mapping-q1", failures,
-                f"question_id={row['question_id']} expected mapping-q1")
-        _expect(row["node_path"] == "retrieval", failures,
-                f"node_path={row['node_path']} expected retrieval")
-        _expect("retrieval.extract_keywords" in row["node_path_prefixes"], failures,
-                "node_path_prefixes missing retrieval.extract_keywords")
-        _expect(row["materialized_keys"] == ["cache-key-a", "cache-key-b"], failures,
-                f"materialized_keys={row['materialized_keys']} expected de-duplicated cache keys")
-        _expect(row["cache_hit_keys"] == ["cache-key-b"], failures,
-                f"cache_hit_keys={row['cache_hit_keys']} expected ['cache-key-b']")
-        _expect(row["materialized_key_count"] == 2, failures,
-                f"materialized_key_count={row['materialized_key_count']} expected 2")
-        _expect(len(edge_rows) == 3, failures,
-                f"edge row count={len(edge_rows)} expected 3 raw materialization edges")
-        _expect(edge_rows[1]["question_id"] == row["question_id"], failures,
-                "edge row question_id does not match mapping row")
-        _expect(edge_rows[1]["materialized_key"] == "cache-key-b", failures,
-                "edge row materialized_key mismatch")
-
-        _record_invariants(
-            "benchmark mapping helpers",
-            failures,
-            "question_id, node_path prefixes, materialized keys, and edge rows verified",
-        )
-    except Exception as exc:
-        record("benchmark mapping helpers", FAIL, str(exc))
-        traceback.print_exc()
-
-
 # ═══════════════════════════════════════════════════════════════════════════════
 # Tier 2 -- Ray distributed batch
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -863,7 +778,6 @@ def main() -> int:
     print("\n  --- Tier 1b: WTB Cache Behavior ---\n")
     check_cache_repeated_runs()
     check_cache_rollback_and_fork()
-    check_benchmark_mapping_helpers()
 
     # ── Tier 2: Ray ──────────────────────────────────────────────────────
     print("\n  --- Tier 2: Ray Distributed ---\n")

@@ -4,13 +4,16 @@ import json
 import os
 from pathlib import Path
 
+from langgraph.graph import END, StateGraph
+
 from .config import Config
-from .pipelines import build_index_graph
-from .runtime_paths import ensure_workspace_dir, get_workspace_dir
+from .nodes.chunk_node import build_node as chunk
+from .nodes.embedding_node import build_node as embed
+from .nodes.graph_node import build_node as graph
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-WORKING_DIR = get_workspace_dir()
+WORKING_DIR = BASE_DIR / "exp_data"
 
 DATA_PATHS = [
     BASE_DIR.parent / "raw_data" / "mix.jsonl",
@@ -189,8 +192,25 @@ async def load_data(index_graph, max_records=None):
     print(f"Total empty documents : {empty_count}")
     print(f"Total invalid JSON    : {invalid_count}")
 
+
+def build_graph(config):
+    g = StateGraph(dict)
+
+    g.add_node("chunk", chunk(config))
+    g.add_node("graph", graph(config))
+    g.add_node("embedding", embed(config))
+
+    g.set_entry_point("chunk")
+
+    g.add_edge("chunk", "graph")
+    g.add_edge("graph", "embedding")
+    g.add_edge("embedding", END)
+
+    return g.compile()
+
+
 async def run():
-    ensure_workspace_dir()
+    WORKING_DIR.mkdir(parents=True, exist_ok=True)
 
     provider = os.getenv("RAG_PROVIDER", "openai").strip().lower()
     config = Config(provider=provider)
@@ -198,7 +218,7 @@ async def run():
     _print_section("Build graph")
     print(f"Working/output dir: {WORKING_DIR}")
 
-    graph = build_index_graph(config)
+    graph = build_graph(config)
     max_records_env = os.getenv("MAX_INDEX_RECORDS", "").strip()
     max_records = int(max_records_env) if max_records_env else None
     await load_data(graph, max_records=max_records)

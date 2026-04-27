@@ -1,14 +1,13 @@
 import json
 
 from ..utils.json_file import save, load
-from ..runtime_paths import workspace_file
 
 
 class GraphStore:
     def __init__(self):
-        self.path = workspace_file("graph.json")
-        self.entity_index_path = workspace_file("graph_entity_index.json")
-        self.relation_index_path = workspace_file("graph_relation_index.json")
+        self.path = "./exp_data/graph.json"
+        self.entity_index_path = "./exp_data/graph_entity_index.json"
+        self.relation_index_path = "./exp_data/graph_relation_index.json"
 
         self.data = load(self.path) or {"nodes": [], "edges": []}
         self.entity_index = load(self.entity_index_path)
