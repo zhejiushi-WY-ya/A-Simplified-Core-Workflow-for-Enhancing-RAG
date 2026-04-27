@@ -19,15 +19,18 @@ Exit code 0 = all attempted checks passed, 1 = at least one failure.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import logging
 import shutil
+import socket
 import sys
 import tempfile
 import time
 import traceback
+from concurrent import futures
 from pathlib import Path
 from types import SimpleNamespace
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 logging.getLogger("sqlalchemy.engine").setLevel(logging.WARNING)
 logging.getLogger("sqlalchemy.engine.Engine").setLevel(logging.WARNING)
@@ -145,6 +148,50 @@ def _ray_text_cache_probe(cache_path: str, prompt: str, response_prefix: str) ->
     return _probe_text_cache(cache_path, prompt, response_prefix)
 
 
+def _ray_rollback_fork_probe() -> Dict[str, Any]:
+    tmp = tempfile.mkdtemp(prefix="wtb_ray_rollback_")
+    bench = None
+    try:
+        from wtb.sdk import WTBTestBench, WorkflowProject
+
+        bench = WTBTestBench.create(mode="development", data_dir=tmp)
+        project = WorkflowProject(name="ray_rollback", graph_factory=_create_linear_graph)
+        bench.register_project(project)
+
+        execution = bench.run(project=project.name, initial_state=dict(_INIT_STATE))
+        cps = bench.get_checkpoints(execution.id)
+        response: Dict[str, Any] = {
+            "status": execution.status.value,
+            "checkpoint_count": len(cps),
+            "rollback_success": False,
+            "rollback_error": None,
+            "fork_execution_id": None,
+            "fork_error": None,
+        }
+        if not cps:
+            return response
+
+        checkpoint_id = str(cps[0].id)
+        rollback = bench.rollback(execution.id, checkpoint_id=checkpoint_id)
+        response["rollback_success"] = rollback.success
+        response["rollback_error"] = rollback.error
+
+        fork = bench.fork(
+            execution.id,
+            checkpoint_id=checkpoint_id,
+            new_initial_state={"messages": ["ray-forked"], "count": 17, "result": ""},
+        )
+        response["fork_execution_id"] = fork.fork_execution_id
+        response["fork_error"] = getattr(fork, "error", None)
+        return response
+    except Exception as exc:
+        return {"error": str(exc), "traceback": traceback.format_exc()}
+    finally:
+        if bench is not None:
+            bench.close()
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def _record_invariants(name: str, failures: List[str], detail: str) -> None:
     if failures:
         record(name, FAIL, "; ".join(failures))
@@ -155,6 +202,80 @@ def _record_invariants(name: str, failures: List[str], detail: str) -> None:
 def _expect(condition: bool, failures: List[str], message: str) -> None:
     if not condition:
         failures.append(message)
+
+
+@contextlib.contextmanager
+def _local_env_manager_url() -> Iterator[str]:
+    """Start a small local EnvManager gRPC fixture for provider smoke checks."""
+    import grpc
+    from wtb.infrastructure.environment.uv_manager.grpc_generated import (
+        env_manager_pb2 as pb2,
+        env_manager_pb2_grpc as pb2_grpc,
+    )
+
+    class LocalEnvManager(pb2_grpc.EnvManagerServiceServicer):
+        def __init__(self):
+            self.root = Path(tempfile.mkdtemp(prefix="wtb_env_manager_"))
+            self.envs: Dict[Tuple[str, str, str], str] = {}
+
+        def _env_path(self, request: Any) -> Path:
+            version = request.version_id or "default"
+            name = f"{request.workflow_id}_{request.node_id}_{version}".replace("/", "_")
+            path = self.root / name
+            bin_dir = path / ".venv" / "bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            python_link = bin_dir / "python"
+            if not python_link.exists():
+                try:
+                    python_link.symlink_to(sys.executable)
+                except FileExistsError:
+                    pass
+            return path
+
+        def CreateEnv(self, request: Any, _context: Any) -> Any:
+            path = self._env_path(request)
+            key = (request.workflow_id, request.node_id, request.version_id)
+            self.envs[key] = str(path)
+            return pb2.CreateEnvResponse(
+                workflow_id=request.workflow_id,
+                node_id=request.node_id,
+                version_id=request.version_id,
+                env_path=str(path),
+                python_version=request.python_version or f"{sys.version_info.major}.{sys.version_info.minor}",
+                status="ready",
+                pyproject_toml='[project]\nname = "wtb-check-env"\n',
+            )
+
+        def DeleteEnv(self, request: Any, _context: Any) -> Any:
+            key = (request.workflow_id, request.node_id, request.version_id)
+            self.envs.pop(key, None)
+            return pb2.DeleteEnvResponse(
+                workflow_id=request.workflow_id,
+                node_id=request.node_id,
+                version_id=request.version_id,
+                status="deleted",
+            )
+
+        def Cleanup(self, _request: Any, _context: Any) -> Any:
+            return pb2.CleanupResponse(deleted=[], checked_at_unix=0)
+
+    sock = socket.socket()
+    sock.bind(("127.0.0.1", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+
+    manager = LocalEnvManager()
+    server = grpc.server(futures.ThreadPoolExecutor(max_workers=4))
+    pb2_grpc.add_EnvManagerServiceServicer_to_server(manager, server)
+    bound_port = server.add_insecure_port(f"127.0.0.1:{port}")
+    if bound_port <= 0:
+        raise RuntimeError(f"failed to bind local EnvManager gRPC fixture on port {port}")
+    server.start()
+    try:
+        yield f"127.0.0.1:{bound_port}"
+    finally:
+        server.stop(0)
+        shutil.rmtree(manager.root, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -524,10 +645,8 @@ def check_ray_batch(skip: bool = False) -> None:
     try:
         import ray
     except ImportError:
-        record("ray batch", SKIP, "ray not installed")
+        record("ray batch", FAIL, "ray not installed; install ray[default]")
         return
-
-    import tempfile, shutil
 
     tmp = tempfile.mkdtemp(prefix="wtb_ray_")
     try:
@@ -569,6 +688,45 @@ def check_ray_batch(skip: bool = False) -> None:
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def check_ray_rollback_and_fork(skip: bool = False) -> None:
+    if skip:
+        record("ray rollback/fork", SKIP, "skipped via --skip-ray")
+        return
+
+    try:
+        import ray
+    except ImportError:
+        record("ray rollback/fork", FAIL, "ray not installed; install ray[default]")
+        return
+
+    try:
+        if not ray.is_initialized():
+            ray.init(num_cpus=2, ignore_reinit_error=True, log_to_driver=False)
+
+        remote_probe = ray.remote(_ray_rollback_fork_probe)
+        result = ray.get(remote_probe.remote())
+        failures: List[str] = []
+        if result.get("error"):
+            failures.append(f"Ray worker error: {result['error']}")
+        _expect(result.get("status") == "completed", failures,
+                f"Ray workflow status={result.get('status')} expected completed")
+        _expect(result.get("checkpoint_count", 0) > 0, failures,
+                f"Ray workflow checkpoints={result.get('checkpoint_count')} expected >0")
+        _expect(bool(result.get("rollback_success")), failures,
+                f"Ray rollback failed: {result.get('rollback_error')}")
+        _expect(bool(result.get("fork_execution_id")), failures,
+                f"Ray fork failed: {result.get('fork_error')}")
+
+        _record_invariants(
+            "ray rollback/fork",
+            failures,
+            f"checkpoints={result.get('checkpoint_count')}, fork={str(result.get('fork_execution_id'))[:12]}...",
+        )
+    except Exception as exc:
+        record("ray rollback/fork", FAIL, str(exc))
+        traceback.print_exc()
+
+
 def check_cache_ray(skip: bool = False) -> None:
     if skip:
         record("cache ray reuse", SKIP, "skipped via --skip-ray")
@@ -577,7 +735,7 @@ def check_cache_ray(skip: bool = False) -> None:
     try:
         import ray
     except ImportError:
-        record("cache ray reuse", SKIP, "ray not installed")
+        record("cache ray reuse", FAIL, "ray not installed; install ray[default]")
         return
 
     tmp = tempfile.mkdtemp(prefix="wtb_cache_ray_")
@@ -623,15 +781,11 @@ def check_cache_ray(skip: bool = False) -> None:
 # Tier 3 -- Venv service (GrpcEnvironmentProvider)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def check_venv_provider(grpc_url: Optional[str]) -> None:
-    if grpc_url is None:
-        record("venv provider", SKIP, "no --grpc-url provided")
-        return
-
+def _check_venv_provider_url(grpc_url: str, source: str) -> None:
     try:
         import grpc  # noqa: F401
     except ImportError:
-        record("venv provider", SKIP, "grpcio not installed")
+        record("venv provider", FAIL, "grpcio not installed; install grpcio>=1.76.0")
         return
 
     try:
@@ -648,7 +802,7 @@ def check_venv_provider(grpc_url: Optional[str]) -> None:
 
         assert env.get("env_path") or env.get("type"), f"unexpected env: {env}"
         record("venv create", PASS,
-               f"type={env.get('type')}, path={env.get('env_path', 'n/a')}")
+               f"type={env.get('type')}, source={source}, path={env.get('env_path', 'n/a')}")
 
         rt = provider.get_runtime_env("smoke-variant")
         has_path = bool(rt and (rt.get("python_path") or rt.get("py_executable")))
@@ -662,6 +816,19 @@ def check_venv_provider(grpc_url: Optional[str]) -> None:
     except Exception as exc:
         record("venv provider", FAIL, str(exc))
         traceback.print_exc()
+
+
+def check_venv_provider(grpc_url: Optional[str]) -> None:
+    if grpc_url is None:
+        try:
+            with _local_env_manager_url() as local_url:
+                _check_venv_provider_url(local_url, "local EnvManager fixture")
+        except Exception as exc:
+            record("venv provider", FAIL, f"local EnvManager fixture failed: {exc}")
+            traceback.print_exc()
+        return
+
+    _check_venv_provider_url(grpc_url, grpc_url)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -701,6 +868,7 @@ def main() -> int:
     # ── Tier 2: Ray ──────────────────────────────────────────────────────
     print("\n  --- Tier 2: Ray Distributed ---\n")
     check_ray_batch(skip=args.skip_ray)
+    check_ray_rollback_and_fork(skip=args.skip_ray)
     check_cache_ray(skip=args.skip_ray)
 
     # ── Tier 3: Venv Service ─────────────────────────────────────────────
