@@ -28,6 +28,11 @@ def _should_use_wtb_cache() -> bool:
     return bool(os.getenv("WTB_LLM_CACHE_PATH", "").strip())
 
 
+def _deterministic_cache_miss_enabled() -> bool:
+    value = os.getenv("WTB_LLM_CACHE_MISS_FALLBACK", "").strip().lower()
+    return value in {"deterministic", "replay", "offline"}
+
+
 def _message_text(content: Any) -> str:
     if isinstance(content, str):
         return content
@@ -77,6 +82,39 @@ def _split_messages(messages: Iterable[Any]) -> tuple[Optional[str], str]:
 def _request_signature(payload: dict[str, Any]) -> str:
     serialized = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def _stable_unit_vector(text: str, dimension: int) -> list[float]:
+    values = []
+    counter = 0
+    while len(values) < dimension:
+        digest = hashlib.sha256(f"{counter}:{text}".encode("utf-8")).digest()
+        for byte in digest:
+            values.append((byte / 127.5) - 1.0)
+            if len(values) >= dimension:
+                break
+        counter += 1
+
+    norm = sum(value * value for value in values) ** 0.5
+    if norm == 0:
+        return values
+    return [value / norm for value in values]
+
+
+class _DeterministicChatModel:
+    def invoke(self, messages: list[Any]) -> Any:
+        prompt = "\n".join(str(message) for message in messages)
+        if "high_level_keywords" in prompt and "low_level_keywords" in prompt:
+            content = json.dumps({
+                "high_level_keywords": ["cache replay"],
+                "low_level_keywords": ["wtb experiment"],
+            })
+        elif "compress" in prompt.lower() or "context" in prompt.lower():
+            content = "Deterministic cache-miss replay context for offline WTB validation."
+        else:
+            digest = hashlib.sha256(prompt.encode("utf-8")).hexdigest()[:16]
+            content = f"Deterministic cache-miss replay answer ({digest})."
+        return SimpleNamespace(content=content)
 
 
 @dataclass
@@ -139,7 +177,14 @@ class _WTBEmbeddingsAdapter:
         else:
             texts = [str(item) for item in input]
         resolved_model = model or self._default_model
-        embeddings = self._service.generate_embeddings(texts, model=resolved_model)
+        if _deterministic_cache_miss_enabled():
+            dimension = int(os.getenv("WTB_DETERMINISTIC_EMBEDDING_DIM", "1536"))
+            embeddings = [
+                _stable_unit_vector(f"{resolved_model}:{text}", dimension)
+                for text in texts
+            ]
+        else:
+            embeddings = self._service.generate_embeddings(texts, model=resolved_model)
         record_materialization_event(
             event_type="embedding_generation",
             model=resolved_model,
@@ -193,6 +238,8 @@ def _build_wtb_service(config, *, base_url: str, api_key: str):
 
 def _build_wtb_client(config, *, base_url: str, api_key: str):
     service = _build_wtb_service(config, base_url=base_url, api_key=api_key)
+    if _deterministic_cache_miss_enabled():
+        service.get_chat_model = lambda **_kwargs: _DeterministicChatModel()
     return _WTBOpenAICompatibleClient(
         service=service,
         default_text_model=config.llm_model,
